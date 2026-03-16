@@ -27,7 +27,6 @@ A .NET 10 client library for consuming the VoyagerUx API. This library provides 
 - **Certificate-Based Authentication**: Secure communication using client certificates
 - **Encrypted Credentials**: Password encryption using AES via `Corp.Lib.Cryptography`
 - **Refit Integration**: Type-safe HTTP client generation via `Corp.Lib.Refit` with `ApiResponse<T>` wrappers for detailed HTTP response information
-- **HybridCache Support**: Two-tier caching (in-memory L1 + distributed L2) with stampede protection for navigation items
 - **Built-in Logging**: Comprehensive debug and error logging using `Corp.Lib.Logging`
 
 ## Installation
@@ -35,19 +34,19 @@ A .NET 10 client library for consuming the VoyagerUx API. This library provides 
 ### NuGet Package Manager
 
 ```powershell
-Install-Package Corp.Api.VoyagerUx.Lib -Version 10.0.0
+Install-Package Corp.Api.VoyagerUx.Lib -Version 10.2.0
 ```
 
 ### .NET CLI
 
 ```bash
-dotnet add package Corp.Api.VoyagerUx.Lib --version 10.0.0
+dotnet add package Corp.Api.VoyagerUx.Lib --version 10.2.0
 ```
 
 ### Package Reference
 
 ```xml
-<PackageReference Include="Corp.Api.VoyagerUx.Lib" Version="10.0.0" />
+<PackageReference Include="Corp.Api.VoyagerUx.Lib" Version="10.2.0" />
 ```
 
 ## Prerequisites
@@ -70,21 +69,20 @@ Add the following to your `appsettings.json`:
 ```json
 {
   "TargetedVoyagerInstance": "Mcs",
-  "TargetedVoyagerEnvironment": "Dev",
-  "ApplicationName": "VoyagerUxApi"
+  "TargetedVoyagerEnvironment": "Dev"
 }
 ```
 
 #### 2. Environment-Specific Configuration
 
-Configure the following settings based on your instance, environment, and application name. The naming convention is `{Instance}.{Environment}.{ApplicationName}.{SettingName}`:
+Configure the following settings based on your instance and environment. The naming convention is `{Instance}.{Environment}.Corp.Api.VoyagerUx.{SettingName}`:
 
 | Setting | Description | Example Key |
 |---------|-------------|-------------|
-| `Url` | Base URL of the VoyagerUx API (required) | `Mcs.Dev.VoyagerUxApi.Url` |
-| `CertificatePath` | Path to the client certificate file (.pfx) | `Mcs.Dev.VoyagerUxApi.CertificatePath` |
-| `Password` | AES-encrypted certificate password | `Mcs.Dev.VoyagerUxApi.Password` |
-| `CertificateThumbprint` | Thumbprint of a certificate in the machine store | `Mcs.Dev.VoyagerUxApi.CertificateThumbprint` |
+| `Url` | Base URL of the VoyagerUx API (required) | `Mcs.Dev.Corp.Api.VoyagerUx.Url` |
+| `CertificatePath` | Path to the client certificate file (.pfx) | `Mcs.Dev.Corp.Api.VoyagerUx.CertificatePath` |
+| `Password` | AES-encrypted certificate password | `Mcs.Dev.Corp.Api.VoyagerUx.Password` |
+| `CertificateThumbprint` | Thumbprint of a certificate in the machine store | `Mcs.Dev.Corp.Api.VoyagerUx.CertificateThumbprint` |
 
 > **Note**: You must provide **either** (`CertificatePath` + `Password`) **or** `CertificateThumbprint`. If both are configured, `CertificateThumbprint` takes priority.
 
@@ -94,7 +92,6 @@ Configure the following settings based on your instance, environment, and applic
 {
   "TargetedVoyagerInstance": "Mcs",
   "TargetedVoyagerEnvironment": "Dev",
-  "ApplicationName": "Corp.Api.VoyagerUx",
   "Mcs.Dev.Corp.Api.VoyagerUx.Url": "https://api.voyagerux.example.com",
   "Mcs.Dev.Corp.Api.VoyagerUx.CertificatePath": "C:\\Certificates\\voyager-client.pfx",
   "Mcs.Dev.Corp.Api.VoyagerUx.Password": "<AES-encrypted-password>"
@@ -107,15 +104,12 @@ Configure the following settings based on your instance, environment, and applic
 {
   "TargetedVoyagerInstance": "Mcs",
   "TargetedVoyagerEnvironment": "Dev",
-  "ApplicationName": "Corp.Api.VoyagerUx",
   "Mcs.Dev.Corp.Api.VoyagerUx.Url": "https://api.voyagerux.example.com",
   "Mcs.Dev.Corp.Api.VoyagerUx.CertificateThumbprint": "A1B2C3D4E5F6..."
 }
 ```
 
 > **Note**: The password must be encrypted using `Corp.Lib.Cryptography.Aes.Encrypt()`. The library will automatically decrypt it during initialization.
-
-> **Note**: The default configuration uses in-memory distributed cache, which only works in a single-server environment. For load-balanced environments, implement SQL Server or Redis distributed cache.
 
 ## Quick Start
 
@@ -216,7 +210,7 @@ else
 
 ### INavigationItemService
 
-Manages navigation menu items with full CRUD and hierarchical operations. All methods return `ApiResponse<T>` which includes HTTP status information and the response content. Results are cached using `HybridCache` with a 30-day expiration.
+Manages navigation menu items with full CRUD and hierarchical operations. All methods return `ApiResponse<T>` which includes HTTP status information and the response content.
 
 ```csharp
 public interface INavigationItemService
@@ -253,11 +247,6 @@ public interface INavigationItemService
     /// Retrieves navigation items organized in a hierarchical tree structure.
     /// </summary>
     Task<ApiResponse<List<NavigationItem>?>> GetHierarchyAsync();
-
-    /// <summary>
-    /// Clears and refreshes the navigation item cache.
-    /// </summary>
-    Task RefreshCacheAsync();
 }
 ```
 
@@ -301,9 +290,6 @@ await _navigationItemService.UpdateAsync(item);
 
 // Delete an item
 await _navigationItemService.DeleteAsync(42, "admin@example.com");
-
-// Refresh the cache after bulk operations
-await _navigationItemService.RefreshCacheAsync();
 ```
 
 ### INavigationHistoryService
@@ -322,6 +308,12 @@ public interface INavigationHistoryService
     /// Retrieves recent navigation history for a user.
     /// </summary>
     Task<ApiResponse<List<NavigationHistory>?>> GetRecentAsync(string userId);
+
+    /// <summary>
+    /// Deletes all navigation history entries for a user.
+    /// </summary>
+    /// <returns>ApiResponse containing the number of rows deleted.</returns>
+    Task<ApiResponse<int>> DeleteByUserIdAsync(string userId);
 }
 ```
 
@@ -352,6 +344,14 @@ if (historyResponse.IsSuccessStatusCode && historyResponse.Content is not null)
     {
         Console.WriteLine($"{page.DisplayLabel}: {page.Url} - {page.AccessedAt}");
     }
+}
+
+// Delete all history for a user
+var deleteResponse = await _navigationHistoryService.DeleteByUserIdAsync("user123");
+
+if (deleteResponse.IsSuccessStatusCode)
+{
+    Console.WriteLine($"Deleted {deleteResponse.Content} history entries");
 }
 ```
 
@@ -390,6 +390,7 @@ Represents a user's navigation history entry.
 | `Url` | `string` | Visited URL |
 | `DisplayLabel` | `string?` | Human-readable label |
 | `AccessedAt` | `DateTime` | Access timestamp |
+| `NavigationType` | `int?` | Navigation type identifier |
 
 ## Error Handling
 
@@ -462,9 +463,8 @@ Ensure your application has configured the logging infrastructure appropriately.
 
 | Package | Version | Description |
 |---------|---------|-------------|
-| `Corp.Lib.Cryptography` | 10.0.0 | AES encryption for secure password handling |
-| `Corp.Lib.Refit` | 10.0.1 | Refit HTTP client configuration extensions |
-| `Microsoft.Extensions.Caching.Hybrid` | 9.0.0+ | HybridCache for two-tier caching support |
+| `Corp.Lib.Cryptography` | 10.1.1 | AES encryption for secure password handling |
+| `Corp.Lib.Refit` | 10.1.5 | Refit HTTP client configuration extensions |
 | `Refit` | 8.0.0+ | Type-safe REST client with `ApiResponse<T>` support |
 | `Corp.Api.VoyagerUx.Obj` | (Project Reference) | Entity definitions |
 
@@ -484,15 +484,15 @@ Ensure your application has configured the logging infrastructure appropriately.
 
 ---
 
-**Error:** `Security library configuration error. ApplicationName configuration element does not exist in appsettings.json.`
+**Error:** `VoyagerUx API library configuration error. {Instance}.{Environment}.Corp.Api.VoyagerUx.Url configuration element does not exist or does not have a value.`
 
-**Solution:** Ensure your `appsettings.json` contains the `ApplicationName` key with a valid value (e.g., `"VoyagerUxApi"`).
+**Solution:** Add the required URL configuration key with the correct instance and environment prefix (e.g., `Mcs.Dev.Corp.Api.VoyagerUx.Url`).
 
 ---
 
-**Error:** `VoyagerUx API library configuration error. {Instance}.{Environment}.{ApplicationName}.Url configuration element does not exist or does not have a value.`
+**Error:** `VoyagerUx API library configuration error. Either ({prefix}.CertificatePath and {prefix}.Password) or {prefix}.CertificateThumbprint must be configured.`
 
-**Solution:** Add the required configuration key with the correct instance, environment, and application name prefix (e.g., `Mcs.Dev.VoyagerUxApi.Url`).
+**Solution:** Provide either a certificate path with an AES-encrypted password, or a certificate thumbprint from the machine store. See the [Configuration](#configuration) section for details.
 
 ---
 
@@ -522,6 +522,7 @@ Ensure your application has configured the logging infrastructure appropriately.
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 10.2.0 | 2025 | Added `DeleteByUserIdAsync` to `INavigationHistoryService`, added `NavigationType` to `NavigationHistory`, updated dependencies |
 | 10.1.0 | 2025 | Added `ApiResponse<T>` return types, migrated to `HybridCache` |
 | 10.0.0 | 2024 | Initial release targeting .NET 10 |
 
